@@ -103,7 +103,6 @@ public abstract class AmazonWebServiceClient {
      * requests.
      */
     public void shutdown() {
-        client.shutdown();
     }
 
     /**
