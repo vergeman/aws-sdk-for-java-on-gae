@@ -14,34 +14,14 @@
  */
 package com.amazonaws.http;
 
-import java.io.IOException;
-import java.net.SocketException;
-import java.net.SocketTimeoutException;
-import java.net.URI;
+import java.io.*;
+import java.net.*;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Random;
 
-import org.apache.commons.httpclient.Header;
-import org.apache.commons.httpclient.HostConfiguration;
-import org.apache.commons.httpclient.HttpConnectionManager;
-import org.apache.commons.httpclient.HttpMethod;
-import org.apache.commons.httpclient.HttpMethodBase;
-import org.apache.commons.httpclient.HttpStatus;
-import org.apache.commons.httpclient.MultiThreadedHttpConnectionManager;
-import org.apache.commons.httpclient.NameValuePair;
-import org.apache.commons.httpclient.NoHttpResponseException;
-import org.apache.commons.httpclient.UsernamePasswordCredentials;
-import org.apache.commons.httpclient.auth.AuthScope;
-import org.apache.commons.httpclient.methods.DeleteMethod;
-import org.apache.commons.httpclient.methods.GetMethod;
-import org.apache.commons.httpclient.methods.HeadMethod;
-import org.apache.commons.httpclient.methods.PostMethod;
-import org.apache.commons.httpclient.methods.PutMethod;
-import org.apache.commons.httpclient.params.HttpClientParams;
-import org.apache.commons.httpclient.params.HttpConnectionManagerParams;
-import org.apache.commons.httpclient.params.HttpMethodParams;
+import com.google.appengine.api.urlfetch.*;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -73,7 +53,7 @@ public class HttpClient {
     private static final Log unmarshallerPerformanceLog = LogFactory.getLog("com.amazonaws.unmarshaller.performance");
 
     /** Internal client for sending HTTP requests */
-    private org.apache.commons.httpclient.HttpClient httpClient;
+    private URLFetchService urlFetchService;
 
     private static final String DEFAULT_ENCODING = "UTF-8";
 
@@ -112,7 +92,7 @@ public class HttpClient {
      */
     public HttpClient(ClientConfiguration clientConfiguration) {
         this.config = clientConfiguration;
-        configureHttpClient();
+        urlFetchService = URLFetchServiceFactory.getURLFetchService();
     }
 
     /**
@@ -138,28 +118,24 @@ public class HttpClient {
             HttpResponseHandler<AmazonServiceException> errorResponseHandler)
             throws AmazonServiceException {
 
-        URI endpoint = request.getEndpoint();
-        HttpMethodBase method = createHttpMethodFromRequest(request);
-
-        /* Set content type and encoding */
-        if (method.getRequestHeader("Content-Type") == null) {
-            log.debug("Setting content-type to application/x-www-form-urlencoded; " +
-            		"charset=" + DEFAULT_ENCODING.toLowerCase());
-            method.addRequestHeader("Content-Type",
-                    "application/x-www-form-urlencoded; " +
-                    "charset=" + DEFAULT_ENCODING.toLowerCase());
-        } else {
-            log.debug("Not overwriting Content-Type; already set to: " + method.getRequestHeader("Content-Type"));
+        HTTPRequest method;
+        try {
+            method = createGoogleHttpRequestFromAmazonHttpRequest(request);
+        } catch (MalformedURLException e) {
+            throw new RuntimeException(e);
         }
 
-        /*
-         * Depending on which response handler we end up choosing to handle the
-         * HTTP response, it might require us to leave the underlying HTTP
-         * connection open, depending on whether or not it reads the complete
-         * HTTP response stream from the HTTP connection, or if delays reading
-         * any of the content until after a response is returned to the caller.
-         */
-        boolean leaveHttpConnectionOpen = false;
+        /* Set content type and encoding */
+        List<HTTPHeader> headers = method.getHeaders();
+        if (findHeader(headers, "Content-Type") == null) {
+            log.debug("Setting content-type to application/x-www-form-urlencoded; " +
+            		"charset=" + DEFAULT_ENCODING.toLowerCase());
+            method.addHeader(new HTTPHeader("Content-Type",
+                    "application/x-www-form-urlencoded; " +
+                    "charset=" + DEFAULT_ENCODING.toLowerCase()));
+        } else {
+            log.debug("Not overwriting Content-Type; already set to: " + findHeader(headers, "Content-Type").getValue());
+        }
 
         /*
          * Apache HttpClient omits the port number in the Host header (even if
@@ -169,16 +145,11 @@ public class HttpClient {
          * and started honoring our explicit host with endpoint), we follow this
          * same behavior here and in the QueryString signer.
          */
-        String hostHeader = endpoint.getHost();
-        if (HttpUtils.isUsingNonDefaultPort(endpoint)) {
-            hostHeader += ":" + endpoint.getPort();
+        String hostHeader = request.getEndpoint().getHost();
+        if (HttpUtils.isUsingNonDefaultPort(request.getEndpoint())) {
+            hostHeader += ":" + request.getEndpoint().getPort();
         }
-        method.addRequestHeader("Host", hostHeader);
-
-        // When we release connections, the connection manager leaves them
-        // open so they can be reused.  We want to close out any idle
-        // connections so that they don't sit around in CLOSE_WAIT.
-        httpClient.getHttpConnectionManager().closeIdleConnections(1000 * 30);
+        method.addHeader(new HTTPHeader("Host", hostHeader));
 
         requestLog.info("Sending Request: " + request.toString());
 
@@ -190,74 +161,45 @@ public class HttpClient {
                 exception = null;
                 retries++;
                 
-                int status = httpClient.executeMethod(method);
+                HTTPResponse response = urlFetchService.fetch(method);
 
-                if (isRequestSuccessful(status)) {
+                if (isRequestSuccessful(response.getResponseCode())) {
                     /*
-                     * If we get back any 2xx status code, then we know we should
+                     * If we get back any 2xx response code, then we know we should
                      * treat the service call as successful.
                      */
-                    leaveHttpConnectionOpen = responseHandler.needsConnectionLeftOpen();
-                    return handleResponse(request, responseHandler, method);
-                } else if (isTemporaryRedirect(method, status)) {
+                    return handleResponse(request, responseHandler, response);
                     /*
-                     * S3 sends 307 Temporary Redirects if you try to delete an
-                     * EU bucket from the US endpoint. If we get a 307, we'll
-                     * point the HTTP method to the redirected location, and let
-                     * the next retry deliver the request to the right location.
+                     * URLFetchService follows redirects by default, so explicit code for handling
+                     * redirection response code has been removed.
                      */
-                    Header locationHeader = method.getResponseHeader("location");
-                    String redirectedLocation = locationHeader.getValue();
-                    log.debug("Redirecting to: " + redirectedLocation);
-                    method.setURI(new org.apache.commons.httpclient.URI(redirectedLocation, false));
                 } else {
-                    leaveHttpConnectionOpen = errorResponseHandler.needsConnectionLeftOpen();
-                    exception = handleErrorResponse(request, errorResponseHandler, method);
+                    exception = handleErrorResponse(request, errorResponseHandler, response);
 
-                    if (!shouldRetry(method, exception, retries)) {
+                    if (!shouldRetry(exception, retries)) {
                         throw exception;
                     }
                 }
             } catch (IOException ioe) {
                 log.warn("Unable to execute HTTP request: " + ioe.getMessage());
 
-                if (!shouldRetry(method, ioe, retries)) {
+                if (!shouldRetry(ioe, retries)) {
                     throw new AmazonClientException("Unable to execute HTTP request: " + ioe.getMessage(), ioe);
-                }
-            } finally {
-                /*
-                 * Some response handlers need to manually manage the HTTP
-                 * connection and will take care of releasing the connection on
-                 * their own, but if this response handler doesn't need the
-                 * connection left open, we go ahead and release the it to free
-                 * up resources.
-                 */
-                if (!leaveHttpConnectionOpen) {
-                    try {method.getResponseBodyAsStream().close();} catch (Throwable t) {}
-                    method.releaseConnection();
                 }
             }
         }
     }
 
-    /**
-     * Shuts down this HTTP client object, releasing any resources that might be
-     * held open. This is an optional method, and callers are not expected to
-     * call it, but can if they want to explicitly release any open resources.
-     * Once a client has been shutdown, it cannot be used to make more requests.
-     */
-    public void shutdown() {
-        HttpConnectionManager connectionManager = httpClient.getHttpConnectionManager();
-        if (connectionManager instanceof MultiThreadedHttpConnectionManager) {
-            ((MultiThreadedHttpConnectionManager)connectionManager).shutdown();
+    private HTTPHeader findHeader(List<HTTPHeader> headers, String name) {
+        for (HTTPHeader header : headers) {
+            if (header.getName().equals(name)) return header;
         }
+        return null;
     }
 
     /**
      * Returns true if a failed request should be retried.
      *
-     * @param method
-     *            The current HTTP method being executed.
      * @param exception
      *            The exception from the failed request.
      * @param retries
@@ -265,18 +207,12 @@ public class HttpClient {
      *
      * @return True if the failed request should be retried.
      */
-    private boolean shouldRetry(HttpMethod method, Exception exception, int retries) {
+    private boolean shouldRetry(Exception exception, int retries) {
         if (retries > config.getMaxErrorRetry()) {
             return false;
         }
 
-        if (!method.isRequestSent()) {
-            log.debug("Retrying on unsent request");
-            return true;
-        }
-
-        if (exception instanceof NoHttpResponseException
-            || exception instanceof SocketException
+        if (exception instanceof SocketException
             || exception instanceof SocketTimeoutException) {
             log.debug("Retrying on " + exception.getClass().getName()
                     + ": " + exception.getMessage());
@@ -295,8 +231,8 @@ public class HttpClient {
              * retry limit we handle the error response as a non-retryable
              * error and go ahead and throw it back to the user as an exception.
              */
-            if (ase.getStatusCode() == HttpStatus.SC_INTERNAL_SERVER_ERROR
-                || ase.getStatusCode() == HttpStatus.SC_SERVICE_UNAVAILABLE) {
+            if (ase.getStatusCode() == 500
+                || ase.getStatusCode() == 503) {
                 return true;
             }
 
@@ -312,48 +248,41 @@ public class HttpClient {
         return false;
     }
 
-    private boolean isTemporaryRedirect(HttpMethodBase method, int status) {
-        return status == HttpStatus.SC_TEMPORARY_REDIRECT &&
-                   method.getResponseHeader("location") != null;
-    }
-
     private boolean isRequestSuccessful(int status) {
-        return status / 100 == HttpStatus.SC_OK / 100;
+        return status / 100 == 2;
     }
 
     /**
      * Creates an HttpClient method object based on the specified request and
      * populates any parameters, headers, etc. from the original request.
      *
-     * @param request
+     * @param amazonRequest
      *            The request to convert to an HttpClient method object.
      *
      * @return The converted HttpClient method object with any parameters,
      *         headers, etc. from the original request set.
      */
-    private HttpMethodBase createHttpMethodFromRequest(HttpRequest request) {
-        URI endpoint = request.getEndpoint();
+    private HTTPRequest createGoogleHttpRequestFromAmazonHttpRequest(HttpRequest amazonRequest) throws MalformedURLException {
+        URI endpoint = amazonRequest.getEndpoint();
         String uri = endpoint.toString();
-        if (request.getResourcePath() != null && request.getResourcePath().length() > 0) {
-            if (request.getResourcePath().startsWith("/") == false) {
+        if (amazonRequest.getResourcePath() != null && amazonRequest.getResourcePath().length() > 0) {
+            if (!amazonRequest.getResourcePath().startsWith("/")) {
                 uri += "/";
             }
-            uri += request.getResourcePath();
+            uri += amazonRequest.getResourcePath();
         }
 
         NameValuePair[] nameValuePairs = null;
-        if (request.getParameters().size() > 0) {
-            nameValuePairs = new NameValuePair[request.getParameters().size()];
+        if (amazonRequest.getParameters().size() > 0) {
+            nameValuePairs = new NameValuePair[amazonRequest.getParameters().size()];
             int i = 0;
-            for (Entry<String, String> entry : request.getParameters().entrySet()) {
+            for (Entry<String, String> entry : amazonRequest.getParameters().entrySet()) {
                 nameValuePairs[i++] = new NameValuePair(entry.getKey(), entry.getValue());
             }
         }
 
-        HttpMethodBase method;
-        if (request.getMethodName() == HttpMethodName.POST) {
-            PostMethod postMethod = new PostMethod(uri);
-
+        HTTPRequest method;
+        if (amazonRequest.getMethodName() == HttpMethodName.POST) {
             /*
              * If there isn't any payload content to include in this request,
              * then try to include the POST parameters in the query body,
@@ -361,61 +290,95 @@ public class HttpClient {
              * the best behavior is putting the params in the request body for
              * POST requests, but we can't do that for S3.
              */
-            if (request.getContent() == null) {
-                if (nameValuePairs != null) postMethod.addParameters(nameValuePairs);
-            } else {
-                if (nameValuePairs != null) postMethod.setQueryString(nameValuePairs);
-                postMethod.setRequestEntity(new RepeatableInputStreamRequestEntity(request));
+            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
+
+            method = new HTTPRequest(new URL(uri), HTTPMethod.POST);
+            if (amazonRequest.getContent() != null) {
+                method.setPayload(toByteArray(amazonRequest.getContent()));
             }
-            method = postMethod;
-        } else if (request.getMethodName() == HttpMethodName.GET) {
-            GetMethod getMethod = new GetMethod(uri);
-            if (nameValuePairs != null) getMethod.setQueryString(nameValuePairs);
-            method = getMethod;
-        } else if (request.getMethodName() == HttpMethodName.PUT) {
-            PutMethod putMethod = new PutMethod(uri);
-            if (nameValuePairs != null) putMethod.setQueryString(nameValuePairs);
-            method = putMethod;
+        } else if (amazonRequest.getMethodName() == HttpMethodName.GET) {
+            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
+            method = new HTTPRequest(new URL(uri), HTTPMethod.GET);
+        } else if (amazonRequest.getMethodName() == HttpMethodName.PUT) {
+            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
+            method = new HTTPRequest(new URL(uri), HTTPMethod.PUT);
 
             /*
-             * Enable 100-continue support for PUT operations, since this is
-             * where we're potentially uploading large amounts of data and want
-             * to find out as early as possible if an operation will fail. We
-             * don't want to do this for all operations since it will cause
-             * extra latency in the network interaction.
+             * URLFetchService doesn't explicitly support 100-continue behaviour, so remove code catering for it
              */
-            putMethod.getParams().setBooleanParameter(HttpClientParams.USE_EXPECT_CONTINUE, true);
 
-            if (request.getContent() != null) {
-                putMethod.setRequestEntity(new RepeatableInputStreamRequestEntity(request));
+            if (amazonRequest.getContent() != null) {
+                method.setPayload(toByteArray(amazonRequest.getContent()));
             }
-        } else if (request.getMethodName() == HttpMethodName.DELETE) {
-            DeleteMethod deleteMethod = new DeleteMethod(uri);
-            if (nameValuePairs != null) deleteMethod.setQueryString(nameValuePairs);
-            method = deleteMethod;
-        } else if (request.getMethodName() == HttpMethodName.HEAD) {
-            HeadMethod headMethod = new HeadMethod(uri);
-            if (nameValuePairs != null) headMethod.setQueryString(nameValuePairs);
-            method = headMethod;
+        } else if (amazonRequest.getMethodName() == HttpMethodName.DELETE) {
+            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
+            method = new HTTPRequest(new URL(uri), HTTPMethod.DELETE);
+        } else if (amazonRequest.getMethodName() == HttpMethodName.HEAD) {
+            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
+            method = new HTTPRequest(new URL(uri), HTTPMethod.HEAD);
         } else {
-            throw new AmazonClientException("Unknown HTTP method name: " + request.getMethodName());
+            throw new AmazonClientException("Unknown HTTP method name: " + amazonRequest.getMethodName());
         }
 
         // No matter what type of HTTP method we're creating, we need to copy
         // all the headers from the request.
-        for (Entry<String, String> entry : request.getHeaders().entrySet()) {
-            method.addRequestHeader(entry.getKey(), entry.getValue());
+        for (Entry<String, String> entry : amazonRequest.getHeaders().entrySet()) {
+            method.addHeader(new HTTPHeader(entry.getKey(), entry.getValue()));
         }
 
         return method;
     }
 
+    public static byte[] toByteArray(InputStream inputStream) {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[1024];
+        int n;
+        try {
+            while (-1 != (n = inputStream.read(buffer))) {
+                output.write(buffer, 0, n);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        return output.toByteArray();
+    }
+
+    static class NameValuePair {
+        private String name;
+        private String value;
+
+        public NameValuePair(String name, String value) {
+            this.name = name;
+            this.value = value;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public String getValue() {
+            return value;
+        }
+    }
+
+    public static String toQueryString(NameValuePair[] nameValuePairs) {
+        StringBuilder queryString = new StringBuilder("?");
+        for (NameValuePair nameValuePair : nameValuePairs) {
+            try {
+                queryString.append(URLEncoder.encode(nameValuePair.getName(), "UTF-8"));
+                queryString.append("=");
+                queryString.append(URLEncoder.encode(nameValuePair.getValue(), "UTF-8"));
+                queryString.append("&");
+            } catch (UnsupportedEncodingException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        return queryString.substring(0, queryString.length() - 1);
+    }
+
     /**
      * Handles a successful response from a service call by unmarshalling the
      * results using the specified response handler.
-     *
-     * @param <T>
-     *            The type of object expected in the response.
      *
      * @param request
      *            The original request that generated the response being
@@ -423,8 +386,8 @@ public class HttpClient {
      * @param responseHandler
      *            The response unmarshaller used to interpret the contents of
      *            the response.
-     * @param method
-     *            The HTTP method that was invoked, and contains the contents of
+     * @param response
+     *            The HTTP response that was invoked, and contains the contents of
      *            the response.
      *
      * @return The contents of the response, unmarshalled using the specified
@@ -432,16 +395,13 @@ public class HttpClient {
      *
      * @throws IOException
      *             If any problems were encountered reading the response
-     *             contents from the HTTP method object.
+     *             contents from the HTTP response object.
      */
     private <T> T handleResponse(HttpRequest request,
-            HttpResponseHandler<AmazonWebServiceResponse<T>> responseHandler, HttpMethodBase method)
+            HttpResponseHandler<AmazonWebServiceResponse<T>> responseHandler, HTTPResponse response)
             throws IOException {
 
-        HttpResponse httpResponse = createResponse(method, request);
-        if (responseHandler.needsConnectionLeftOpen()) {
-            httpResponse.setContent(new HttpMethodReleaseInputStream(method));
-        }
+        HttpResponse httpResponse = createAmazonResponseFromGoogleResponse(request, response);
 
         try {
             CountingInputStream countingInputStream = null;
@@ -464,13 +424,13 @@ public class HttpClient {
 
             responseMetadataCache.add(request.getOriginalRequest(), awsResponse.getResponseMetadata());
 
-            requestLog.info("Received successful response: " + method.getStatusCode()
+            requestLog.info("Received successful response: " + response.getResponseCode()
                     + ", AWS Request ID: " + awsResponse.getRequestId());
 
             return awsResponse.getResult();
         } catch (Exception e) {
             String errorMessage = "Unable to unmarshall response (" + e.getMessage() + "): "
-                                + method.getResponseBodyAsString();
+                                + new String(response.getContent());
             log.error(errorMessage, e);
             throw new AmazonClientException(errorMessage, e);
         }
@@ -491,25 +451,23 @@ public class HttpClient {
      *
      * @throws IOException
      *             If any problems are encountering reading the error response.
+     * @return AmazonServiceException
      */
     private AmazonServiceException handleErrorResponse(HttpRequest request,
             HttpResponseHandler<AmazonServiceException> errorResponseHandler,
-            HttpMethodBase method) throws IOException {
+            HTTPResponse method) throws IOException {
 
-        int status = method.getStatusCode();
-        HttpResponse response = createResponse(method, request);
-        if (errorResponseHandler.needsConnectionLeftOpen()) {
-            response.setContent(new HttpMethodReleaseInputStream(method));
-        }
+        int status = method.getResponseCode();
+        HttpResponse response = createAmazonResponseFromGoogleResponse(request, method);
 
-        AmazonServiceException exception = null;
+        AmazonServiceException exception;
 
         try {
             exception = errorResponseHandler.handle(response);
             requestLog.info("Received error response: " + exception.toString());
         } catch (Exception e) {
             String errorMessage = "Unable to unmarshall error response (" + e.getMessage() + "): "
-                                + method.getResponseBodyAsString();
+                                + new String(method.getContent());
             log.error(errorMessage, e);
             throw new AmazonClientException(errorMessage, e);
         }
@@ -524,25 +482,25 @@ public class HttpClient {
      * Creates and initializes an HttpResponse object suitable to be passed to
      * an HTTP response handler object.
      *
-     * @param method
-     *            The HTTP method that was invoked to get the response.
      * @param request
      *            The HTTP request associated with the response.
      *
+     * @param response
+     *            The HTTP response that was invoked to get the response.
      * @return The new, initialized HttpResponse object ready to be passed to an
      *         HTTP response handler object.
      *
      * @throws IOException
      *             If there were any problems getting any response information
-     *             from the HttpClient method object.
+     *             from the HttpClient response object.
      */
-    private HttpResponse createResponse(HttpMethodBase method, HttpRequest request) throws IOException {
+    private HttpResponse createAmazonResponseFromGoogleResponse(HttpRequest request, HTTPResponse response) throws IOException {
         HttpResponse httpResponse = new HttpResponse(request);
 
-        httpResponse.setContent(method.getResponseBodyAsStream());
-        httpResponse.setStatusCode(method.getStatusCode());
-        httpResponse.setStatusText(method.getStatusText());
-        for (Header header : method.getResponseHeaders()) {
+        httpResponse.setContent(new ByteArrayInputStream(response.getContent()));
+        httpResponse.setStatusCode(response.getResponseCode());
+        httpResponse.setStatusText("Status text not available from URLFetchService");
+        for (HTTPHeader header : response.getHeaders()) {
             httpResponse.addHeader(header.getName(), header.getValue());
         }
 
@@ -588,75 +546,4 @@ public class HttpClient {
         if (ase == null) return false;
         return ase.getErrorCode().equals("Throttling");
     }
-
-    /**
-     * Configure HttpClient with set of defaults as well as configuration.
-     */
-    private void configureHttpClient() {
-        /* Form User-Agent information */
-        String userAgent = config.getUserAgent();
-        if (!(userAgent.equals(ClientConfiguration.DEFAULT_USER_AGENT))) {
-            userAgent += ", " + ClientConfiguration.DEFAULT_USER_AGENT;
-        }
-
-        /* Set HTTP client parameters */
-        HttpClientParams httpClientParams = new HttpClientParams();
-        httpClientParams.setParameter(HttpMethodParams.USER_AGENT, userAgent);
-
-        /* Set host configuration */
-        HostConfiguration hostConfiguration = new HostConfiguration();
-
-        /* Set connection manager parameters */
-        HttpConnectionManagerParams connectionManagerParams = new HttpConnectionManagerParams();
-        connectionManagerParams.setConnectionTimeout(config.getConnectionTimeout());
-        connectionManagerParams.setSoTimeout(config.getSocketTimeout());
-        connectionManagerParams.setStaleCheckingEnabled(true);
-        connectionManagerParams.setTcpNoDelay(true);
-        connectionManagerParams.setMaxTotalConnections(config.getMaxConnections());
-        connectionManagerParams.setMaxConnectionsPerHost(hostConfiguration, config.getMaxConnections());
-
-        int socketSendBufferSizeHint = config.getSocketBufferSizeHints()[0];
-        if (socketSendBufferSizeHint > 0) {
-            connectionManagerParams.setSendBufferSize(socketSendBufferSizeHint);
-        }
-
-        int socketReceiveBufferSizeHint = config.getSocketBufferSizeHints()[1];
-        if (socketReceiveBufferSizeHint > 0) {
-            connectionManagerParams.setReceiveBufferSize(socketReceiveBufferSizeHint);
-        }
-
-        /* Set connection manager */
-        MultiThreadedHttpConnectionManager connectionManager = new MultiThreadedHttpConnectionManager();
-        connectionManager.setParams(connectionManagerParams);
-
-        httpClient = new org.apache.commons.httpclient.HttpClient(
-                httpClientParams, connectionManager);
-
-        /* Set proxy if configured */
-        String proxyHost = config.getProxyHost();
-        int proxyPort = config.getProxyPort();
-        if (proxyHost != null && proxyPort > 0) {
-            log.info("Configuring Proxy. Proxy Host: " + proxyHost + " "
-                    + "Proxy Port: " + proxyPort);
-            hostConfiguration.setProxy(proxyHost, proxyPort);
-
-            String proxyUsername = config.getProxyUsername();
-            String proxyPassword = config.getProxyPassword();
-            if (proxyUsername != null && proxyPassword != null) {
-                AuthScope authScope = new AuthScope(proxyHost, proxyPort);
-                UsernamePasswordCredentials credentials =
-                    new UsernamePasswordCredentials(proxyUsername, proxyPassword);
-
-                httpClient.getState().setProxyCredentials(authScope, credentials);
-            }
-        }
-        httpClient.setHostConfiguration(hostConfiguration);
-    }
-
-    @Override
-    protected void finalize() throws Throwable {
-        this.shutdown();
-        super.finalize();
-    }
-
 }
