@@ -29,34 +29,7 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptor {
      */
     public HTTPRequest convert(HttpRequest amazonRequest) throws MalformedURLException {
         URI endpoint = amazonRequest.getEndpoint();
-        String uri = endpoint.toString();
-        String path = amazonRequest.getResourcePath();
-        if (path != null && path.length() > 0) {
-            if (path.startsWith("/")) {
-                if (uri.endsWith("/")) {
-                    uri += path.substring(1);
-                } else {
-                    uri += path;
-                }
-            } else {
-                if (uri.endsWith("/")) {
-                    uri += path;
-                } else {
-                    uri += "/" + path;
-                }
-            }
-        } else if (!uri.endsWith("/")) {
-            uri += "/";
-        };
-
-        NameValuePair[] nameValuePairs = null;
-        if (amazonRequest.getParameters().size() > 0) {
-            nameValuePairs = new NameValuePair[amazonRequest.getParameters().size()];
-            int i = 0;
-            for (Map.Entry<String, String> entry : amazonRequest.getParameters().entrySet()) {
-                nameValuePairs[i++] = new NameValuePair(entry.getKey(), entry.getValue());
-            }
-        }
+        String uri = concatenateEnsuringCorrectNumberOfSlashes(endpoint.toString(), amazonRequest.getResourcePath());
 
         HTTPRequest method;
         if (amazonRequest.getMethodName() == HttpMethodName.POST) {
@@ -67,18 +40,14 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptor {
              * the best behavior is putting the params in the request body for
              * POST requests, but we can't do that for S3.
              */
-            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
-
-            method = new HTTPRequest(new URL(uri), HTTPMethod.POST);
+            method = new HTTPRequest(new URL(uri + toQueryString(amazonRequest.getParameters())), HTTPMethod.POST);
             if (amazonRequest.getContent() != null) {
                 method.setPayload(toByteArray(amazonRequest.getContent()));
             }
         } else if (amazonRequest.getMethodName() == HttpMethodName.GET) {
-            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
-            method = new HTTPRequest(new URL(uri), HTTPMethod.GET);
+            method = new HTTPRequest(new URL(uri + toQueryString(amazonRequest.getParameters())), HTTPMethod.GET);
         } else if (amazonRequest.getMethodName() == HttpMethodName.PUT) {
-            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
-            method = new HTTPRequest(new URL(uri), HTTPMethod.PUT);
+            method = new HTTPRequest(new URL(uri + toQueryString(amazonRequest.getParameters())), HTTPMethod.PUT);
 
             /*
              * URLFetchService doesn't explicitly support 100-continue behaviour, so remove code catering for it
@@ -88,11 +57,9 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptor {
                 method.setPayload(toByteArray(amazonRequest.getContent()));
             }
         } else if (amazonRequest.getMethodName() == HttpMethodName.DELETE) {
-            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
-            method = new HTTPRequest(new URL(uri), HTTPMethod.DELETE);
+            method = new HTTPRequest(new URL(uri + toQueryString(amazonRequest.getParameters())), HTTPMethod.DELETE);
         } else if (amazonRequest.getMethodName() == HttpMethodName.HEAD) {
-            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
-            method = new HTTPRequest(new URL(uri), HTTPMethod.HEAD);
+            method = new HTTPRequest(new URL(uri + toQueryString(amazonRequest.getParameters())), HTTPMethod.HEAD);
         } else {
             throw new AmazonClientException("Unknown HTTP method name: " + amazonRequest.getMethodName());
         }
@@ -106,31 +73,39 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptor {
         return method;
     }
 
-    static class NameValuePair {
-        private String name;
-        private String value;
-
-        public NameValuePair(String name, String value) {
-            this.name = name;
-            this.value = value;
-        }
-
-        public String getName() {
-            return name;
-        }
-
-        public String getValue() {
-            return value;
+    private static String concatenateEnsuringCorrectNumberOfSlashes(String endpoint, String path) {
+        if (path == null || path.isEmpty()) {
+            if (endpoint.endsWith("/")) {
+                return endpoint;
+            } else {
+                return endpoint + "/";
+            }
+        } else {
+            if (path.startsWith("/")) {
+                if (endpoint.endsWith("/")) {
+                    return endpoint + path.substring(1);
+                } else {
+                    return endpoint + path;
+                }
+            } else {
+                if (endpoint.endsWith("/")) {
+                    return endpoint + path;
+                } else {
+                    return endpoint + "/" + path;
+                }
+            }
         }
     }
 
-    public static String toQueryString(NameValuePair[] nameValuePairs) {
+    public static String toQueryString(Map<String, String> parameters) {
+        if (parameters == null || parameters.isEmpty()) return "";
+
         StringBuilder queryString = new StringBuilder("?");
-        for (NameValuePair nameValuePair : nameValuePairs) {
+        for (Map.Entry<String,String> entry : parameters.entrySet()) {
             try {
-                queryString.append(URLEncoder.encode(nameValuePair.getName(), "UTF-8"));
+                queryString.append(URLEncoder.encode(entry.getKey(), "UTF-8"));
                 queryString.append("=");
-                queryString.append(URLEncoder.encode(nameValuePair.getValue(), "UTF-8"));
+                queryString.append(URLEncoder.encode(entry.getValue(), "UTF-8"));
                 queryString.append("&");
             } catch (UnsupportedEncodingException e) {
                 throw new RuntimeException(e);
