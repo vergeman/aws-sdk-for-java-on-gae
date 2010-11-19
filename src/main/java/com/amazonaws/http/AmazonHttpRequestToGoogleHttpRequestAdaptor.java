@@ -52,8 +52,13 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptor {
              * the best behavior is putting the params in the request body for
              * POST requests, but we can't do that for S3.
              */
-            googleRequest = new HTTPRequest(new URL(uri + toQueryString(amazonRequest.getParameters())), methodMap.get(method));
-            if (amazonRequest.getContent() != null) {
+            if (amazonRequest.getContent() == null) {
+                googleRequest = new HTTPRequest(new URL(uri), methodMap.get(method));
+                if (!toQueryString(amazonRequest.getParameters()).isEmpty()) {
+                    googleRequest.setPayload(toQueryString(amazonRequest.getParameters()).substring(1).getBytes());
+                }
+            } else {
+                googleRequest = new HTTPRequest(new URL(uri + toQueryString(amazonRequest.getParameters())), methodMap.get(method));
                 googleRequest.setPayload(toByteArray(amazonRequest.getContent()));
             }
         } else if (methodMap.containsKey(method)) {

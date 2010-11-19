@@ -4,6 +4,7 @@ import com.google.appengine.api.urlfetch.HTTPMethod;
 import com.google.appengine.api.urlfetch.HTTPRequest;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.HashMap;
@@ -85,5 +86,42 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
         return request;
     }
 
+    @Test
+    public void shouldPutContentIntoPayload() throws Exception {
+        HttpRequest amazonRequest = new HttpRequest(HttpMethodName.POST);
+        amazonRequest.setEndpoint(new URI("https://endpoint/"));
+        amazonRequest.setContent(new ByteArrayInputStream("PAYLOAD".getBytes()));
+
+        HTTPRequest googleRequest = new AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(amazonRequest);
+        assertEquals("https://endpoint/", googleRequest.getURL().toString());
+        assertEquals("PAYLOAD", new String(googleRequest.getPayload()));
+    }
+
+    @Test
+    public void shouldPutParamatersInQueryStringWhenContentAlsoSupplied() throws Exception {
+        HttpRequest amazonRequest = new HttpRequest(HttpMethodName.POST);
+        amazonRequest.setEndpoint(new URI("https://endpoint/"));
+        HashMap<String, String> paramaters = new HashMap<String, String>();
+        paramaters.put("key", "value");
+        amazonRequest.setParameters(paramaters);
+        amazonRequest.setContent(new ByteArrayInputStream("PAYLOAD".getBytes()));
+
+        HTTPRequest googleRequest = new AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(amazonRequest);
+        assertEquals("https://endpoint/?key=value", googleRequest.getURL().toString());
+        assertEquals("PAYLOAD", new String(googleRequest.getPayload()));
+    }
+    
+    @Test
+    public void shouldIncludeParametersInRequestBodyForPostRequestIfNoContentSupplied() throws Exception {
+        HttpRequest amazonRequest = new HttpRequest(HttpMethodName.POST);
+        amazonRequest.setEndpoint(new URI("https://endpoint/"));
+        HashMap<String, String> paramaters = new HashMap<String, String>();
+        paramaters.put("key", "value");
+        amazonRequest.setParameters(paramaters);
+
+        HTTPRequest googleRequest = new AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(amazonRequest);
+        assertEquals("https://endpoint/", googleRequest.getURL().toString());
+        assertEquals("key=value", new String(googleRequest.getPayload()));
+    }
 
 }
