@@ -1,6 +1,8 @@
-package com.amazonaws.http;
+package com.amazonaws.http.gae;
 
 import com.amazonaws.AmazonClientException;
+import com.amazonaws.http.HttpMethodName;
+import com.amazonaws.http.HttpRequest;
 import com.google.appengine.api.urlfetch.HTTPHeader;
 import com.google.appengine.api.urlfetch.HTTPMethod;
 import com.google.appengine.api.urlfetch.HTTPRequest;

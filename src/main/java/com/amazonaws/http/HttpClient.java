@@ -18,9 +18,9 @@ import java.io.*;
 import java.net.*;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map.Entry;
 import java.util.Random;
 
+import com.amazonaws.http.gae.AmazonHttpRequestToGoogleHttpRequestAdaptor;
 import com.google.appengine.api.urlfetch.*;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;

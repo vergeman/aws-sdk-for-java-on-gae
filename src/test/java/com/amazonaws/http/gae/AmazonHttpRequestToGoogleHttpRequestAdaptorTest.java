@@ -1,5 +1,8 @@
-package com.amazonaws.http;
+package com.amazonaws.http.gae;
 
+import com.amazonaws.http.HttpMethodName;
+import com.amazonaws.http.HttpRequest;
+import com.amazonaws.http.gae.AmazonHttpRequestToGoogleHttpRequestAdaptor;
 import com.google.appengine.api.urlfetch.HTTPMethod;
 import com.google.appengine.api.urlfetch.HTTPRequest;
 import org.junit.Test;
