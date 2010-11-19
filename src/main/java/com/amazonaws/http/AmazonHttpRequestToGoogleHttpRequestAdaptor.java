@@ -32,10 +32,19 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptor {
         String uri = endpoint.toString();
         String path = amazonRequest.getResourcePath();
         if (path != null && path.length() > 0) {
-            if (!path.startsWith("/")) {
-                uri += "/";
+            if (path.startsWith("/")) {
+                if (uri.endsWith("/")) {
+                    uri += path.substring(1);
+                } else {
+                    uri += path;
+                }
+            } else {
+                if (uri.endsWith("/")) {
+                    uri += path;
+                } else {
+                    uri += "/" + path;
+                }
             }
-            uri += path;
         } else if (!uri.endsWith("/")) {
             uri += "/";
         };
