@@ -54,6 +54,7 @@ public class HttpClient {
 
     /** Internal client for sending HTTP requests */
     private URLFetchService urlFetchService;
+    private AmazonHttpRequestToGoogleHttpRequestAdaptor requestAdaptor = new AmazonHttpRequestToGoogleHttpRequestAdaptor();
 
     private static final String DEFAULT_ENCODING = "UTF-8";
 
@@ -120,7 +121,7 @@ public class HttpClient {
 
         HTTPRequest method;
         try {
-            method = createGoogleHttpRequestFromAmazonHttpRequest(request);
+            method = requestAdaptor.convert(request);
         } catch (MalformedURLException e) {
             throw new RuntimeException(e);
         }
@@ -250,130 +251,6 @@ public class HttpClient {
 
     private boolean isRequestSuccessful(int status) {
         return status / 100 == 2;
-    }
-
-    /**
-     * Creates an HttpClient method object based on the specified request and
-     * populates any parameters, headers, etc. from the original request.
-     *
-     * @param amazonRequest
-     *            The request to convert to an HttpClient method object.
-     *
-     * @return The converted HttpClient method object with any parameters,
-     *         headers, etc. from the original request set.
-     */
-    private HTTPRequest createGoogleHttpRequestFromAmazonHttpRequest(HttpRequest amazonRequest) throws MalformedURLException {
-        URI endpoint = amazonRequest.getEndpoint();
-        String uri = endpoint.toString();
-        if (amazonRequest.getResourcePath() != null && amazonRequest.getResourcePath().length() > 0) {
-            if (!amazonRequest.getResourcePath().startsWith("/")) {
-                uri += "/";
-            }
-            uri += amazonRequest.getResourcePath();
-        }
-
-        NameValuePair[] nameValuePairs = null;
-        if (amazonRequest.getParameters().size() > 0) {
-            nameValuePairs = new NameValuePair[amazonRequest.getParameters().size()];
-            int i = 0;
-            for (Entry<String, String> entry : amazonRequest.getParameters().entrySet()) {
-                nameValuePairs[i++] = new NameValuePair(entry.getKey(), entry.getValue());
-            }
-        }
-
-        HTTPRequest method;
-        if (amazonRequest.getMethodName() == HttpMethodName.POST) {
-            /*
-             * If there isn't any payload content to include in this request,
-             * then try to include the POST parameters in the query body,
-             * otherwise, just use the query string. For all AWS Query services,
-             * the best behavior is putting the params in the request body for
-             * POST requests, but we can't do that for S3.
-             */
-            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
-
-            method = new HTTPRequest(new URL(uri), HTTPMethod.POST);
-            if (amazonRequest.getContent() != null) {
-                method.setPayload(toByteArray(amazonRequest.getContent()));
-            }
-        } else if (amazonRequest.getMethodName() == HttpMethodName.GET) {
-            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
-            method = new HTTPRequest(new URL(uri), HTTPMethod.GET);
-        } else if (amazonRequest.getMethodName() == HttpMethodName.PUT) {
-            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
-            method = new HTTPRequest(new URL(uri), HTTPMethod.PUT);
-
-            /*
-             * URLFetchService doesn't explicitly support 100-continue behaviour, so remove code catering for it
-             */
-
-            if (amazonRequest.getContent() != null) {
-                method.setPayload(toByteArray(amazonRequest.getContent()));
-            }
-        } else if (amazonRequest.getMethodName() == HttpMethodName.DELETE) {
-            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
-            method = new HTTPRequest(new URL(uri), HTTPMethod.DELETE);
-        } else if (amazonRequest.getMethodName() == HttpMethodName.HEAD) {
-            if (nameValuePairs != null) uri += toQueryString(nameValuePairs);
-            method = new HTTPRequest(new URL(uri), HTTPMethod.HEAD);
-        } else {
-            throw new AmazonClientException("Unknown HTTP method name: " + amazonRequest.getMethodName());
-        }
-
-        // No matter what type of HTTP method we're creating, we need to copy
-        // all the headers from the request.
-        for (Entry<String, String> entry : amazonRequest.getHeaders().entrySet()) {
-            method.addHeader(new HTTPHeader(entry.getKey(), entry.getValue()));
-        }
-
-        return method;
-    }
-
-    public static byte[] toByteArray(InputStream inputStream) {
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        byte[] buffer = new byte[1024];
-        int n;
-        try {
-            while (-1 != (n = inputStream.read(buffer))) {
-                output.write(buffer, 0, n);
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        return output.toByteArray();
-    }
-
-    static class NameValuePair {
-        private String name;
-        private String value;
-
-        public NameValuePair(String name, String value) {
-            this.name = name;
-            this.value = value;
-        }
-
-        public String getName() {
-            return name;
-        }
-
-        public String getValue() {
-            return value;
-        }
-    }
-
-    public static String toQueryString(NameValuePair[] nameValuePairs) {
-        StringBuilder queryString = new StringBuilder("?");
-        for (NameValuePair nameValuePair : nameValuePairs) {
-            try {
-                queryString.append(URLEncoder.encode(nameValuePair.getName(), "UTF-8"));
-                queryString.append("=");
-                queryString.append(URLEncoder.encode(nameValuePair.getValue(), "UTF-8"));
-                queryString.append("&");
-            } catch (UnsupportedEncodingException e) {
-                throw new RuntimeException(e);
-            }
-        }
-        return queryString.substring(0, queryString.length() - 1);
     }
 
     /**
