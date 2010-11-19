@@ -20,6 +20,7 @@ import static com.amazonaws.http.HttpMethodName.*;
 public class AmazonHttpRequestToGoogleHttpRequestAdaptor {
 
     static final Map<HttpMethodName, HTTPMethod> methodMap = new HashMap<HttpMethodName, HTTPMethod>();
+
     static {
         methodMap.put(GET, HTTPMethod.GET);
         methodMap.put(POST, HTTPMethod.POST);
@@ -32,14 +33,10 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptor {
      * Creates an HttpClient method object based on the specified request and
      * populates any parameters, headers, etc. from the original request.
      *
-     * @param amazonRequest
-     *            The request to convert to an HttpClient method object.
-     *
+     * @param amazonRequest The request to convert to an HttpClient method object.
      * @return The converted HttpClient method object with any parameters,
      *         headers, etc. from the original request set.
-     *
-     * @throws java.net.MalformedURLException
-     *            If supplied request includes a malformed URL.
+     * @throws java.net.MalformedURLException If supplied request includes a malformed URL.
      */
     public HTTPRequest convert(HttpRequest amazonRequest) throws MalformedURLException {
         String uri = concatenateEnsuringCorrectNumberOfSlashes(String.valueOf(amazonRequest.getEndpoint()),
@@ -102,7 +99,7 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptor {
         if (parameters == null || parameters.isEmpty()) return "";
 
         StringBuilder queryString = new StringBuilder("?");
-        for (Map.Entry<String,String> entry : parameters.entrySet()) {
+        for (Map.Entry<String, String> entry : parameters.entrySet()) {
             try {
                 queryString.append(URLEncoder.encode(entry.getKey(), "UTF-8"));
                 queryString.append("=");

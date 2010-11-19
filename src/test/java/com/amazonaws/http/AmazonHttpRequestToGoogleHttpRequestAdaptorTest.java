@@ -13,7 +13,7 @@ import java.util.TreeMap;
 import static org.junit.Assert.assertEquals;
 
 public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
-    
+
     @Test
     public void shouldConcatenateEndpointWithPathAndQueryString() throws Exception {
         HttpRequest amazonRequest = new HttpRequest(HttpMethodName.GET);
@@ -68,7 +68,7 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
         HTTPRequest googleRequest = new AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(amazonRequest);
         assertEquals("https://hostname.without.a.trailing.slash/?key=value", googleRequest.getURL().toString());
     }
-    
+
     @Test
     public void shouldMapAllSupportedHttpMethods() throws Exception {
         AmazonHttpRequestToGoogleHttpRequestAdaptor adaptor = new AmazonHttpRequestToGoogleHttpRequestAdaptor();
@@ -78,12 +78,12 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
         assertEquals(HTTPMethod.DELETE, adaptor.convert(request(HttpMethodName.DELETE)).getMethod());
         assertEquals(HTTPMethod.HEAD, adaptor.convert(request(HttpMethodName.HEAD)).getMethod());
     }
-    
+
     private static HttpRequest request(HttpMethodName method) throws URISyntaxException {
         HttpRequest request = new HttpRequest(method);
         request.setEndpoint(new URI("http://endpoint"));
         return request;
     }
 
-    
+
 }
