@@ -12,7 +12,7 @@ Also, dependencies have changes, since the library now depends on the [Google Ap
 
 Nothing has changed in the build department from the official version, so you should still build with [Maven](http://maven.apache.org/).  It seems to work fine with  default Maven settings, fetching all dependencies from public repositories.
 
-	$ mvn jar
+	$ mvn clean package
 
 ## Using
 
