@@ -1,9 +1,11 @@
 package com.amazonaws.http;
 
+import com.google.appengine.api.urlfetch.HTTPMethod;
 import com.google.appengine.api.urlfetch.HTTPRequest;
 import org.junit.Test;
 
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
@@ -66,4 +68,22 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
         HTTPRequest googleRequest = new AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(amazonRequest);
         assertEquals("https://hostname.without.a.trailing.slash/?key=value", googleRequest.getURL().toString());
     }
+    
+    @Test
+    public void shouldMapAllSupportedHttpMethods() throws Exception {
+        AmazonHttpRequestToGoogleHttpRequestAdaptor adaptor = new AmazonHttpRequestToGoogleHttpRequestAdaptor();
+        assertEquals(HTTPMethod.GET, adaptor.convert(request(HttpMethodName.GET)).getMethod());
+        assertEquals(HTTPMethod.POST, adaptor.convert(request(HttpMethodName.POST)).getMethod());
+        assertEquals(HTTPMethod.PUT, adaptor.convert(request(HttpMethodName.PUT)).getMethod());
+        assertEquals(HTTPMethod.DELETE, adaptor.convert(request(HttpMethodName.DELETE)).getMethod());
+        assertEquals(HTTPMethod.HEAD, adaptor.convert(request(HttpMethodName.HEAD)).getMethod());
+    }
+    
+    private static HttpRequest request(HttpMethodName method) throws URISyntaxException {
+        HttpRequest request = new HttpRequest(method);
+        request.setEndpoint(new URI("http://endpoint"));
+        return request;
+    }
+
+    
 }

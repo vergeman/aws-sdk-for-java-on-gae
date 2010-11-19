@@ -10,12 +10,23 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
-import java.net.URI;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.util.HashMap;
 import java.util.Map;
 
+import static com.amazonaws.http.HttpMethodName.*;
+
 public class AmazonHttpRequestToGoogleHttpRequestAdaptor {
+
+    static final Map<HttpMethodName, HTTPMethod> methodMap = new HashMap<HttpMethodName, HTTPMethod>();
+    static {
+        methodMap.put(GET, HTTPMethod.GET);
+        methodMap.put(POST, HTTPMethod.POST);
+        methodMap.put(PUT, HTTPMethod.PUT);
+        methodMap.put(DELETE, HTTPMethod.DELETE);
+        methodMap.put(HEAD, HTTPMethod.HEAD);
+    }
 
     /**
      * Creates an HttpClient method object based on the specified request and
@@ -26,13 +37,17 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptor {
      *
      * @return The converted HttpClient method object with any parameters,
      *         headers, etc. from the original request set.
+     *
+     * @throws java.net.MalformedURLException
+     *            If supplied request includes a malformed URL.
      */
     public HTTPRequest convert(HttpRequest amazonRequest) throws MalformedURLException {
-        URI endpoint = amazonRequest.getEndpoint();
-        String uri = concatenateEnsuringCorrectNumberOfSlashes(endpoint.toString(), amazonRequest.getResourcePath());
+        String uri = concatenateEnsuringCorrectNumberOfSlashes(String.valueOf(amazonRequest.getEndpoint()),
+                amazonRequest.getResourcePath());
 
-        HTTPRequest method;
-        if (amazonRequest.getMethodName() == HttpMethodName.POST) {
+        HTTPRequest googleRequest;
+        HttpMethodName method = amazonRequest.getMethodName();
+        if (method == POST || method == PUT) {
             /*
              * If there isn't any payload content to include in this request,
              * then try to include the POST parameters in the query body,
@@ -40,37 +55,23 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptor {
              * the best behavior is putting the params in the request body for
              * POST requests, but we can't do that for S3.
              */
-            method = new HTTPRequest(new URL(uri + toQueryString(amazonRequest.getParameters())), HTTPMethod.POST);
+            googleRequest = new HTTPRequest(new URL(uri + toQueryString(amazonRequest.getParameters())), methodMap.get(method));
             if (amazonRequest.getContent() != null) {
-                method.setPayload(toByteArray(amazonRequest.getContent()));
+                googleRequest.setPayload(toByteArray(amazonRequest.getContent()));
             }
-        } else if (amazonRequest.getMethodName() == HttpMethodName.GET) {
-            method = new HTTPRequest(new URL(uri + toQueryString(amazonRequest.getParameters())), HTTPMethod.GET);
-        } else if (amazonRequest.getMethodName() == HttpMethodName.PUT) {
-            method = new HTTPRequest(new URL(uri + toQueryString(amazonRequest.getParameters())), HTTPMethod.PUT);
-
-            /*
-             * URLFetchService doesn't explicitly support 100-continue behaviour, so remove code catering for it
-             */
-
-            if (amazonRequest.getContent() != null) {
-                method.setPayload(toByteArray(amazonRequest.getContent()));
-            }
-        } else if (amazonRequest.getMethodName() == HttpMethodName.DELETE) {
-            method = new HTTPRequest(new URL(uri + toQueryString(amazonRequest.getParameters())), HTTPMethod.DELETE);
-        } else if (amazonRequest.getMethodName() == HttpMethodName.HEAD) {
-            method = new HTTPRequest(new URL(uri + toQueryString(amazonRequest.getParameters())), HTTPMethod.HEAD);
+        } else if (methodMap.containsKey(method)) {
+            googleRequest = new HTTPRequest(new URL(uri + toQueryString(amazonRequest.getParameters())), methodMap.get(method));
         } else {
-            throw new AmazonClientException("Unknown HTTP method name: " + amazonRequest.getMethodName());
+            throw new AmazonClientException("Unknown HTTP method name: " + method);
         }
 
-        // No matter what type of HTTP method we're creating, we need to copy
+        // No matter what type of HTTP googleRequest we're creating, we need to copy
         // all the headers from the request.
         for (Map.Entry<String, String> entry : amazonRequest.getHeaders().entrySet()) {
-            method.addHeader(new HTTPHeader(entry.getKey(), entry.getValue()));
+            googleRequest.addHeader(new HTTPHeader(entry.getKey(), entry.getValue()));
         }
 
-        return method;
+        return googleRequest;
     }
 
     private static String concatenateEnsuringCorrectNumberOfSlashes(String endpoint, String path) {
