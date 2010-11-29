@@ -80,7 +80,7 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptor {
 
     private static String concatenateEnsuringCorrectNumberOfSlashes(String endpoint, String path) {
         if (path == null || path.isEmpty()) {
-            if (endpoint.endsWith("/")) {
+            if (endpoint.replaceAll("://", "").contains("/")) {
                 return endpoint;
             } else {
                 return endpoint + "/";

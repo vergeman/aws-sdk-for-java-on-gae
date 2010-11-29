@@ -61,6 +61,16 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
     }
 
     @Test
+    public void shouldNotAddAdditionalSlashWhenEndpointContainsOneButPathIsEmpty() throws Exception {
+        HttpRequest amazonRequest = new HttpRequest(HttpMethodName.GET);
+        amazonRequest.setEndpoint(new URI("https://endpoint.with.hostname/and_a_path"));
+        amazonRequest.setResourcePath("");
+
+        HTTPRequest googleRequest = new AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(amazonRequest);
+        assertEquals("https://endpoint.with.hostname/and_a_path", googleRequest.getURL().toString());
+    }
+
+    @Test
     public void shouldAddSlashBetweenHostAndQueryStringWhenEndpointHasNoSlashAndPathIsEmpty() throws Exception {
         HttpRequest amazonRequest = new HttpRequest(HttpMethodName.GET);
         amazonRequest.setEndpoint(new URI("https://hostname.without.a.trailing.slash"));
