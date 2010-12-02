@@ -94,7 +94,7 @@ public class VersionInfoUtils {
      * next time the data is needed.
      */
 	private static void initializeUserAgent( String platform ) {
-		userAgent = "AWS Java SDK-" + VersionInfoUtils.getVersion();		
+		userAgent = "AWS Java SDK-" + VersionInfoUtils.getVersion() + " (on Google App Engine)";
 	/*
 		StringBuffer buffer = new StringBuffer( 1024 );
 		buffer.append( "aws-sdk-" + platform.toLowerCase() + "/" );
