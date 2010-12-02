@@ -1,15 +1,18 @@
 <project name="aws-sdk-for-java-on-gae" default="build" basedir=".">
 
     <property name="third-party.root" location="${basedir}/third-party" />
-    <property name="src.dir" location="${basedir}/src/main/java" />
+    <property name="src.main.dir" location="${basedir}/src/main/java" />
+    <property name="src.test.dir" location="${basedir}/src/test/java" />
     <property name="resources.dir" location="${basedir}/src/main/resources" />
-    <property name="build.dir" location="${basedir}/build" />
+    <property name="build.classes.dir" location="${basedir}/build/classes" />
+    <property name="build.test-classes.dir" location="${basedir}/build/test-classes" />
+    <property name="build.test-reports.dir" location="${basedir}/build/test-reports" />
 
     <property name="app.name" value="gae-aws-sdk" />
     <!-- Read version number -->
     <property file="${resources.dir}/com/amazonaws/sdk/versionInfo.properties" />
     
-    <path id="build.path">
+    <path id="third-party.main.path">
     	<pathelement location="${third-party.root}/appengine-1.3.8/appengine-api-1.0-sdk-1.3.8.jar" />
         <pathelement location="${third-party.root}/commons-codec-1.3/commons-codec-1.3.jar" />
         <pathelement location="${third-party.root}/commons-httpclient-3.0.1/commons-httpclient-3.0.1.jar" />
@@ -19,22 +22,60 @@
         <pathelement location="${third-party.root}/stax-ri-1.2.0/stax-1.2.0.jar" />
     </path>
 
+    <path id="third-party.test.path">
+    	<path refid="third-party.main.path" />
+        <pathelement location="${third-party.root}/junit-4.0/junit-4.0.jar" />
+    </path>
+
     <target name="compile">
-        <mkdir dir="${build.dir}" />
-        <javac srcdir="${src.dir}"
-            destdir="${build.dir}"
+        <mkdir dir="${build.classes.dir}" />
+        <javac srcdir="${src.main.dir}"
+            destdir="${build.classes.dir}"
             debug="on"
-            classpathref="build.path"
+            includeantruntime="false"
+            classpathref="third-party.main.path"
         />
+        <mkdir dir="${build.test-classes.dir}" />
+        <javac srcdir="${src.test.dir}"
+            destdir="${build.test-classes.dir}"
+            debug="on"
+            includeantruntime="false">
+            <classpath>
+                <path refid="third-party.test.path" />
+                <pathelement location="${build.classes.dir}" />
+            </classpath>
+        </javac>
     </target>
 
-    <target name="jar" depends="compile">
-        <copy todir="${build.dir}">
+    <target name="test" depends="compile">
+        <mkdir dir="${build.test-reports.dir}" />
+        <fileset id="src.test.files" dir="${src.test.dir}">
+            <include name="**/*Test.java"/>
+        </fileset>
+        <junit forkMode="perBatch"
+               printsummary="yes"
+               haltonerror="true"
+               haltonfailure="true"
+               dir="${basedir}">
+            <formatter type="xml"/>
+            <batchtest fork="yes" todir="${build.test-reports.dir}">
+                <fileset refid="src.test.files"/>
+            </batchtest>
+            <classpath>
+                <path refid="third-party.test.path" />
+                <pathelement location="${build.classes.dir}" />
+                <pathelement location="${build.test-classes.dir}" />
+            </classpath>
+        </junit>
+    </target>
+
+    <target name="jar" depends="test">
+        <copy todir="${build.classes.dir}">
             <fileset dir="${resources.dir}" />
         </copy>
-        <delete file="${build.dir}/${app.name}-${version}.jar" />
-        <jar jarfile="${build.dir}/${app.name}-${version}.jar">
-            <fileset dir="${build.dir}">
+        <delete file="${build.classes.dir}/${app.name}-${version}.jar" />
+        <jar jarfile="${build.classes.dir}/${app.name}-${version}.jar">
+            <fileset dir="${build.classes.dir}">
                 <exclude name="com/amazonaws/services/s3/**" />
             </fileset>
         </jar>
@@ -43,7 +84,7 @@
     <target name="build" depends="jar" />
 
     <target name="clean">
-        <delete dir="${build.dir}" />
+        <delete dir="${build.classes.dir}" />
     </target>
 
 </project>
