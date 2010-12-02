@@ -10,13 +10,23 @@ Also, dependencies have changes, since the library now depends on the [Google Ap
 
 ## Building
 
-Nothing has changed in the build department from the official version, so you should still build with [Maven](http://maven.apache.org/).  It seems to work fine with  default Maven settings, fetching all dependencies from public repositories.
+There are two possibilities for building the GAE version of the SDK.
+
+### Maven
+
+Nothing has changed in the [Maven](http://maven.apache.org) department from the official version.  It seems to work fine with  default Maven settings, fetching all dependencies from public repositories.
 
 	$ mvn clean package
 
+### Ant
+
+Additionally, you can also build with [Ant](http://ant.apache.org/) using the provided `build.xml` file. Just run the default target with:
+
+    $ ant
+
 ## Using
 
-If you have an existing GAE app, just drop the jar output from this project into your.  GAE apps don't use Maven by default, so you'll have to fish these dependencies from your local maven repository, or find them somewhere else:
+If you have an existing GAE app, just drop the jar output from this project into yours.  GAE apps don't use Maven by default, so you'll have to fish these dependencies from your local maven repository, or find them somewhere else:
 
 	<dependency>
 	    <groupId>commons-logging</groupId>
