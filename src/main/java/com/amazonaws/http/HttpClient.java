@@ -421,6 +421,6 @@ public class HttpClient {
      */
     private boolean isThrottlingException(AmazonServiceException ase) {
         if (ase == null) return false;
-        return ase.getErrorCode().equals("Throttling");
+        return "Throttling".equals(ase.getErrorCode());
     }
 }
