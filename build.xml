@@ -48,6 +48,14 @@
     </target>
 
     <target name="test" depends="compile">
+        <taskdef name="junit"
+                 classname="org.apache.tools.ant.taskdefs.optional.junit.JUnitTask">
+            <classpath>
+                <pathelement location="${third-party.root}/junit-4.0/junit-4.0.jar" />
+                <pathelement location="${third-party.root}/ant-junit-1.8.1/ant-junit.jar" />
+            </classpath>
+        </taskdef>
+
         <mkdir dir="${build.test-reports.dir}" />
         <fileset id="src.test.files" dir="${src.test.dir}">
             <include name="**/*Test.java"/>
