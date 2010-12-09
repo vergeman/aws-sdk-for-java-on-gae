@@ -20,7 +20,7 @@ Nothing has changed in the [Maven](http://maven.apache.org) department from the 
 
 ### Ant
 
-Additionally, you can also build with [Ant](http://ant.apache.org/) using the provided `build.xml` file. Just run the default target with:
+Additionally, you can also build with [Ant](http://ant.apache.org/) (>= 1.8.1) using the provided `build.xml` file. Just run the default target with:
 
     $ ant
 
