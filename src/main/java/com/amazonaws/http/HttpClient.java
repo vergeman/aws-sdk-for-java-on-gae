@@ -16,8 +16,15 @@ package com.amazonaws.http;
 
 import java.io.*;
 import java.net.*;
+import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.net.URI;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map.Entry;
 import java.util.Random;
 
 import com.amazonaws.http.gae.AmazonHttpRequestToGoogleHttpRequestAdaptor;
@@ -30,10 +37,14 @@ import com.amazonaws.AmazonServiceException;
 import com.amazonaws.AmazonWebServiceRequest;
 import com.amazonaws.AmazonWebServiceResponse;
 import com.amazonaws.ClientConfiguration;
+import com.amazonaws.DefaultRequest;
+import com.amazonaws.Request;
 import com.amazonaws.ResponseMetadata;
+import com.amazonaws.handlers.RequestHandler;
 import com.amazonaws.util.CountingInputStream;
 import com.amazonaws.util.HttpUtils;
 import com.amazonaws.util.ResponseMetadataCache;
+import com.amazonaws.util.TimingInfo;
 
 public class HttpClient {
 
@@ -114,10 +125,72 @@ public class HttpClient {
         return responseMetadataCache.get(request);
     }
 
-    public <T> T execute(HttpRequest request,
+
+
+    public <T> T execute(Request<?> request,
+            HttpResponseHandler<AmazonWebServiceResponse<T>> responseHandler,
+            HttpResponseHandler<AmazonServiceException> errorResponseHandler,
+    		ExecutionContext executionContext) throws AmazonClientException, AmazonServiceException {
+    	long startTime = System.currentTimeMillis();
+
+    	/*
+    	 * TODO: Ideally, we'd run the "beforeRequest" on any request handlers here, but
+    	 *       we have to run that code *before* signing the request, since it could change
+    	 *       request parameters.
+    	 */
+
+    	if (executionContext == null) throw new AmazonClientException("Internal SDK Error: No execution context parameter specified.");
+    	List<RequestHandler> requestHandlers = executionContext.requestHandlers;
+    	if (requestHandlers == null) requestHandlers = new ArrayList<RequestHandler>();
+
+    	try {
+    		T t = execute(request, responseHandler, errorResponseHandler);
+    		TimingInfo timingInfo = new TimingInfo(startTime, System.currentTimeMillis());
+			for (RequestHandler handler : requestHandlers) {
+				try {
+					handler.afterResponse(request, t, timingInfo);
+				} catch (ClassCastException cce) {}
+        	}
+    		return t;
+    	} catch (AmazonClientException e) {
+			for (RequestHandler handler : requestHandlers) {
+        		handler.afterError(request, e);
+        	}
+        	throw e;
+    	}
+    }
+
+    @Deprecated
+    public <T extends Object> T execute(HttpRequest httpRequest,
             HttpResponseHandler<AmazonWebServiceResponse<T>> responseHandler,
             HttpResponseHandler<AmazonServiceException> errorResponseHandler)
-            throws AmazonServiceException {
+            throws AmazonClientException, AmazonServiceException {
+    	return execute(convertToRequest(httpRequest), responseHandler, errorResponseHandler);
+    }
+
+    @Deprecated
+    public static Request<?> convertToRequest(HttpRequest httpRequest) {
+        Request<?> request = new DefaultRequest(httpRequest.getServiceName());
+        request.setContent(httpRequest.getContent());
+        request.setEndpoint(httpRequest.getEndpoint());
+        request.setHttpMethod(httpRequest.getMethodName());
+        request.setResourcePath(httpRequest.getResourcePath());
+
+        for (Entry<String, String> parameter : httpRequest.getParameters().entrySet()) {
+            request.addParameter(parameter.getKey(), parameter.getValue());
+        }
+
+        for (Entry<String, String> parameter : httpRequest.getHeaders().entrySet()) {
+            request.addHeader(parameter.getKey(), parameter.getValue());
+        }
+
+        return request;
+    }
+
+    public <T extends Object> T execute(Request<?> request,
+            HttpResponseHandler<AmazonWebServiceResponse<T>> responseHandler,
+            HttpResponseHandler<AmazonServiceException> errorResponseHandler)
+            throws AmazonClientException, AmazonServiceException {
 
         HTTPRequest method;
         try {
@@ -274,7 +347,7 @@ public class HttpClient {
      *             If any problems were encountered reading the response
      *             contents from the HTTP response object.
      */
-    private <T> T handleResponse(HttpRequest request,
+    private <T> T handleResponse(Request<?> request,
             HttpResponseHandler<AmazonWebServiceResponse<T>> responseHandler, HTTPResponse response)
             throws IOException {
 
@@ -330,7 +403,7 @@ public class HttpClient {
      *             If any problems are encountering reading the error response.
      * @return AmazonServiceException
      */
-    private AmazonServiceException handleErrorResponse(HttpRequest request,
+    private AmazonServiceException handleErrorResponse(Request request,
             HttpResponseHandler<AmazonServiceException> errorResponseHandler,
             HTTPResponse method) throws IOException {
 
@@ -371,7 +444,7 @@ public class HttpClient {
      *             If there were any problems getting any response information
      *             from the HttpClient response object.
      */
-    private HttpResponse createAmazonResponseFromGoogleResponse(HttpRequest request, HTTPResponse response) throws IOException {
+    private HttpResponse createAmazonResponseFromGoogleResponse(Request request, HTTPResponse response) throws IOException {
         HttpResponse httpResponse = new HttpResponse(request);
 
         httpResponse.setContent(new ByteArrayInputStream(response.getContent()));

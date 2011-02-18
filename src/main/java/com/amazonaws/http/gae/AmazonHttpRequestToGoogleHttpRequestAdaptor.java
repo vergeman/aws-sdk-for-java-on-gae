@@ -1,8 +1,8 @@
 package com.amazonaws.http.gae;
 
 import com.amazonaws.AmazonClientException;
+import com.amazonaws.Request;
 import com.amazonaws.http.HttpMethodName;
-import com.amazonaws.http.HttpRequest;
 import com.google.appengine.api.urlfetch.HTTPHeader;
 import com.google.appengine.api.urlfetch.HTTPMethod;
 import com.google.appengine.api.urlfetch.HTTPRequest;
@@ -40,12 +40,12 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptor {
      *         headers, etc. from the original request set.
      * @throws java.net.MalformedURLException If supplied request includes a malformed URL.
      */
-    public HTTPRequest convert(HttpRequest amazonRequest) throws MalformedURLException {
+    public HTTPRequest convert(Request<?> amazonRequest) throws MalformedURLException {
         String uri = concatenateEnsuringCorrectNumberOfSlashes(String.valueOf(amazonRequest.getEndpoint()),
                 amazonRequest.getResourcePath());
 
         HTTPRequest googleRequest;
-        HttpMethodName method = amazonRequest.getMethodName();
+        HttpMethodName method = amazonRequest.getHttpMethod();
         if (method == POST || method == PUT) {
             /*
              * If there isn't any payload content to include in this request,

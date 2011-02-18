@@ -1,5 +1,7 @@
 package com.amazonaws.http.gae;
 
+import com.amazonaws.Request;
+import com.amazonaws.http.HttpClient;
 import com.amazonaws.http.HttpMethodName;
 import com.amazonaws.http.HttpRequest;
 import com.google.appengine.api.urlfetch.HTTPMethod;
@@ -19,21 +21,19 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
 
     @Test
     public void shouldConcatenateEndpointWithPathAndQueryString() throws Exception {
-        HttpRequest amazonRequest = new HttpRequest(HttpMethodName.GET);
+        Request<?> amazonRequest = HttpClient.convertToRequest(new HttpRequest(HttpMethodName.GET));
         amazonRequest.setEndpoint(new URI("https://endpoint"));
         amazonRequest.setResourcePath("/resource/path/");
-        Map<String, String> paramaters = new TreeMap<String, String>();
-        paramaters.put("key1", "value1");
-        paramaters.put("key2", "value2");
-        amazonRequest.setParameters(paramaters);
+        amazonRequest.addParameter("key1", "value1");
+        amazonRequest.addParameter("key2", "value2");
 
         HTTPRequest googleRequest = new AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(amazonRequest);
-        assertEquals("https://endpoint/resource/path/?key1=value1&key2=value2", googleRequest.getURL().toString());
+        assertEquals("https://endpoint/resource/path/?key2=value2&key1=value1", googleRequest.getURL().toString());
     }
 
     @Test
     public void shouldInsertSlashBetweenEndpointAndPathWhenNeitherHasOne() throws Exception {
-        HttpRequest amazonRequest = new HttpRequest(HttpMethodName.GET);
+        Request<?> amazonRequest = HttpClient.convertToRequest(new HttpRequest(HttpMethodName.GET));
         amazonRequest.setEndpoint(new URI("https://hostname.without.a.trailing.slash"));
         amazonRequest.setResourcePath("resource/without/a/leading/slash/");
 
@@ -43,7 +43,7 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
 
     @Test
     public void shouldAppendTrailingSlashWhenEndpointLacksOneAndNeitherPathNorQueryStringSupplied() throws Exception {
-        HttpRequest amazonRequest = new HttpRequest(HttpMethodName.GET);
+        Request<?> amazonRequest = HttpClient.convertToRequest(new HttpRequest(HttpMethodName.GET));
         amazonRequest.setEndpoint(new URI("https://hostname.without.a.trailing.slash"));
 
         HTTPRequest googleRequest = new AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(amazonRequest);
@@ -52,7 +52,7 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
 
     @Test
     public void shouldAvoidDoubleSlashWhenBothEndpointAndPathSupplyOne() throws Exception {
-        HttpRequest amazonRequest = new HttpRequest(HttpMethodName.GET);
+        Request<?> amazonRequest = HttpClient.convertToRequest(new HttpRequest(HttpMethodName.GET));
         amazonRequest.setEndpoint(new URI("https://endpoint/"));
         amazonRequest.setResourcePath("/resource/path/");
 
@@ -62,7 +62,7 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
 
     @Test
     public void shouldNotAddAdditionalSlashWhenEndpointContainsOneButPathIsEmpty() throws Exception {
-        HttpRequest amazonRequest = new HttpRequest(HttpMethodName.GET);
+        Request<?> amazonRequest = HttpClient.convertToRequest(new HttpRequest(HttpMethodName.GET));
         amazonRequest.setEndpoint(new URI("https://endpoint.with.hostname/and_a_path"));
         amazonRequest.setResourcePath("");
 
@@ -72,11 +72,9 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
 
     @Test
     public void shouldAddSlashBetweenHostAndQueryStringWhenEndpointHasNoSlashAndPathIsEmpty() throws Exception {
-        HttpRequest amazonRequest = new HttpRequest(HttpMethodName.GET);
+        Request<?> amazonRequest = HttpClient.convertToRequest(new HttpRequest(HttpMethodName.GET));
         amazonRequest.setEndpoint(new URI("https://hostname.without.a.trailing.slash"));
-        HashMap<String, String> paramaters = new HashMap<String, String>();
-        paramaters.put("key", "value");
-        amazonRequest.setParameters(paramaters);
+        amazonRequest.addParameter("key", "value");
 
         HTTPRequest googleRequest = new AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(amazonRequest);
         assertEquals("https://hostname.without.a.trailing.slash/?key=value", googleRequest.getURL().toString());
@@ -92,10 +90,10 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
         assertEquals(HTTPMethod.HEAD, adaptor.convert(request(HttpMethodName.HEAD)).getMethod());
     }
 
-    private static HttpRequest request(HttpMethodName method) throws URISyntaxException {
+    private static Request<?> request(HttpMethodName method) throws URISyntaxException {
         HttpRequest request = new HttpRequest(method);
         request.setEndpoint(new URI("http://endpoint"));
-        return request;
+        return HttpClient.convertToRequest(request);
     }
 
     @Test
@@ -104,7 +102,8 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
         amazonRequest.setEndpoint(new URI("https://endpoint/"));
         amazonRequest.setContent(new ByteArrayInputStream("PAYLOAD".getBytes()));
 
-        HTTPRequest googleRequest = new AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(amazonRequest);
+        HTTPRequest googleRequest = new
+          AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(HttpClient.convertToRequest(amazonRequest));
         assertEquals("https://endpoint/", googleRequest.getURL().toString());
         assertEquals("PAYLOAD", new String(googleRequest.getPayload()));
     }
@@ -113,12 +112,11 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
     public void shouldPutParamatersInQueryStringWhenContentAlsoSupplied() throws Exception {
         HttpRequest amazonRequest = new HttpRequest(HttpMethodName.POST);
         amazonRequest.setEndpoint(new URI("https://endpoint/"));
-        HashMap<String, String> paramaters = new HashMap<String, String>();
-        paramaters.put("key", "value");
-        amazonRequest.setParameters(paramaters);
+        amazonRequest.addParameter("key", "value");
         amazonRequest.setContent(new ByteArrayInputStream("PAYLOAD".getBytes()));
 
-        HTTPRequest googleRequest = new AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(amazonRequest);
+        HTTPRequest googleRequest = new
+          AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(HttpClient.convertToRequest(amazonRequest));
         assertEquals("https://endpoint/?key=value", googleRequest.getURL().toString());
         assertEquals("PAYLOAD", new String(googleRequest.getPayload()));
     }
@@ -127,11 +125,10 @@ public class AmazonHttpRequestToGoogleHttpRequestAdaptorTest {
     public void shouldIncludeParametersInRequestBodyForPostRequestIfNoContentSupplied() throws Exception {
         HttpRequest amazonRequest = new HttpRequest(HttpMethodName.POST);
         amazonRequest.setEndpoint(new URI("https://endpoint/"));
-        HashMap<String, String> paramaters = new HashMap<String, String>();
-        paramaters.put("key", "value");
-        amazonRequest.setParameters(paramaters);
+        amazonRequest.addParameter("key", "value");
 
-        HTTPRequest googleRequest = new AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(amazonRequest);
+        HTTPRequest googleRequest = new
+          AmazonHttpRequestToGoogleHttpRequestAdaptor().convert(HttpClient.convertToRequest(amazonRequest));
         assertEquals("https://endpoint/", googleRequest.getURL().toString());
         assertEquals("key=value", new String(googleRequest.getPayload()));
     }
