@@ -83,9 +83,7 @@
         </copy>
         <delete file="${build.classes.dir}/${app.name}-${version}.jar" />
         <jar jarfile="${build.classes.dir}/${app.name}-${version}.jar">
-            <fileset dir="${build.classes.dir}">
-                <exclude name="com/amazonaws/services/s3/**" />
-            </fileset>
+          <fileset dir="${build.classes.dir}" />
         </jar>
     </target>
 
